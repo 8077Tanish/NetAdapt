@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import {
   Activity,
+  Check,
   ChevronDown,
   ChevronUp,
   Download,
+  Link2,
   Mic,
   MicOff,
   Monitor,
@@ -16,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { FAULT_SCENARIOS } from '../algorithm/nqsEngine';
+import { LiveConnectionPhase } from '../core/webrtcSession';
 import {
   AdaptationMode,
   ChatMessage,
@@ -26,15 +29,22 @@ import {
 import { VideoCanvasStage } from './VideoCanvasStage';
 
 interface MeetingViewProps {
+  roomId: string;
   username: string;
   micOn: boolean;
   camOn: boolean;
   screenSharing: boolean;
   localStream: MediaStream | null;
+  remoteStream: MediaStream | null;
+  remoteName: string;
+  remoteCamOn: boolean;
+  remoteMicOn: boolean;
+  livePhase: LiveConnectionPhase;
   cameraError: string | null;
   onToggleMic: () => void;
   onToggleCam: () => void;
   onToggleScreenShare: () => void;
+  onCopyInviteLink: () => void;
   onLeaveCall: () => void;
   sample: TelemetrySample;
   sampleCount: number;
@@ -49,15 +59,22 @@ interface MeetingViewProps {
 }
 
 export const MeetingView: React.FC<MeetingViewProps> = ({
+  roomId,
   username,
   micOn,
   camOn,
   screenSharing,
   localStream,
+  remoteStream,
+  remoteName,
+  remoteCamOn,
+  remoteMicOn,
+  livePhase,
   cameraError,
   onToggleMic,
   onToggleCam,
   onToggleScreenShare,
+  onCopyInviteLink,
   onLeaveCall,
   sample,
   sampleCount,
@@ -75,6 +92,9 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
   const [hudExpanded, setHudExpanded] = useState(true);
   const [openPopover, setOpenPopover] = useState<'none' | 'ar' | 'fault'>('none');
   const [arPreviewOverlay, setArPreviewOverlay] = useState(false);
+  const [copiedInvite, setCopiedInvite] = useState(false);
+
+  const isLivePeerConnected = livePhase === 'connected';
 
   const handleChatSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -84,10 +104,16 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
     setChatInput('');
   };
 
-  // NQS Ring Gauge geometry
+  const handleCopyInvite = () => {
+    onCopyInviteLink();
+    setCopiedInvite(true);
+    window.setTimeout(() => setCopiedInvite(false), 1800);
+  };
+
   const radius = 21;
   const circumference = 2 * Math.PI * radius;
-  const dashOffset = circumference - (Math.min(100, Math.max(0, sample.smoothNqs)) / 100) * circumference;
+  const dashOffset =
+    circumference - (Math.min(100, Math.max(0, sample.smoothNqs)) / 100) * circumference;
 
   const stateMeta =
     sample.qualityState === 'GOOD'
@@ -106,35 +132,74 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
         <div className="space-y-3">
           <VideoCanvasStage
             username={username}
-            remoteName="Sarah"
+            remoteName={remoteName}
             micOn={micOn}
             camOn={camOn}
             screenSharing={screenSharing}
             localStream={localStream}
+            remoteStream={remoteStream}
+            remoteCamOn={remoteCamOn}
+            remoteMicOn={remoteMicOn}
+            livePhase={livePhase}
             cameraError={cameraError}
             sample={sample}
             arPreviewOverlay={arPreviewOverlay}
           />
 
-          {/* Compact Inline Scenario Strip for Rapid Demo Fault Injection */}
+          {/* Live 2-User Status / Invite Bar or Solo Fault Profile Info */}
           <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs">
-            <div className="flex items-center gap-2 text-zinc-400">
-              <span className="text-zinc-500">Network Profile:</span>
-              <span className="text-zinc-200 font-medium">{activeScenarioObj.label}</span>
-              <span className="text-zinc-600" aria-hidden="true">·</span>
-              <span className="font-mono text-[11px] text-zinc-500">
-                {activeScenarioObj.simulatedParams}
-              </span>
+            <div className="flex items-center gap-2 text-zinc-400 min-w-0">
+              {isLivePeerConnected ? (
+                <>
+                  <span className="font-mono text-emerald-400">● Live 2-User WebRTC</span>
+                  <span className="text-zinc-600" aria-hidden="true">·</span>
+                  <span className="text-zinc-300 truncate">
+                    Real <span className="font-mono">pc.getStats()</span> &{' '}
+                    <span className="font-mono">setParameters()</span> active with {remoteName}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="text-zinc-500">
+                    {livePhase === 'negotiating'
+                      ? 'Connecting peer...'
+                      : livePhase === 'room_full'
+                      ? 'Room full (2/2)'
+                      : 'Waiting for 2nd user ·'}
+                  </span>
+                  {livePhase !== 'negotiating' && livePhase !== 'room_full' && (
+                    <span className="text-zinc-300 truncate">
+                      Solo Fault Lab: {activeScenarioObj.label}
+                    </span>
+                  )}
+                </>
+              )}
             </div>
-            <div className="font-mono tabular-nums text-[11px] text-zinc-500">
-              MOS {sample.mosEstimate.toFixed(2)} / 4.50
+
+            <div className="flex items-center gap-3 shrink-0">
+              {!isLivePeerConnected && (
+                <button
+                  type="button"
+                  onClick={handleCopyInvite}
+                  className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors whitespace-nowrap"
+                >
+                  {copiedInvite ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  ) : (
+                    <Link2 className="w-3.5 h-3.5" />
+                  )}
+                  <span>{copiedInvite ? 'Invite link copied' : `Copy invite (?room=${roomId})`}</span>
+                </button>
+              )}
+              <span className="font-mono tabular-nums text-[11px] text-zinc-500">
+                MOS {sample.mosEstimate.toFixed(2)} / 4.50
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Floating Minimalist Bottom Control Dock (Faithful to NetAdapt Mockup) */}
+        {/* Floating Minimalist Bottom Control Dock */}
         <div className="relative flex items-center justify-center py-1">
-          {/* AR Integration Hook Popover (Honors README Note #4 — Transparent Month 7 Hook) */}
           {openPopover === 'ar' && (
             <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 w-80 bg-[#111114] border border-zinc-800 rounded-xl p-4 shadow-2xl space-y-3">
               <div className="flex items-center justify-between">
@@ -173,12 +238,13 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
             </div>
           )}
 
-          {/* Fault Simulator Quick Popover */}
           {openPopover === 'fault' && (
             <div className="absolute bottom-16 left-1/2 -translate-x-1/2 z-30 w-80 sm:w-96 bg-[#111114] border border-zinc-800 rounded-xl p-3 shadow-2xl space-y-2">
               <div className="flex items-center justify-between px-1 pb-1 border-b border-zinc-800">
                 <span className="text-xs font-semibold text-zinc-100">
-                  Inject Network Fault (Clumsy / tc netem)
+                  {isLivePeerConnected
+                    ? 'Live WebRTC Active (Use Clumsy / tc netem)'
+                    : 'Inject Solo Network Fault'}
                 </span>
                 <button
                   type="button"
@@ -189,38 +255,46 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-              <div className="space-y-1 max-h-64 overflow-y-auto">
-                {FAULT_SCENARIOS.map((sc) => {
-                  const selected = sc.id === activeScenario;
-                  return (
-                    <button
-                      key={sc.id}
-                      type="button"
-                      onClick={() => {
-                        onSelectScenario(sc.id);
-                        setOpenPopover('none');
-                      }}
-                      className={`w-full text-left px-2.5 py-2 rounded-lg transition-colors flex items-center justify-between gap-2 ${
-                        selected
-                          ? 'bg-blue-600/20 text-zinc-100 border border-blue-500/40'
-                          : 'text-zinc-300 hover:bg-zinc-800/70 border border-transparent'
-                      }`}
-                    >
-                      <div className="min-w-0">
-                        <div className="text-xs font-medium truncate">
-                          {sc.code}. {sc.label}
+              {isLivePeerConnected ? (
+                <p className="text-xs text-zinc-400 px-1 py-2 leading-relaxed">
+                  You are connected to a real remote peer ({remoteName}). Telemetry now reads directly from live{' '}
+                  <span className="font-mono text-zinc-200">RTCPeerConnection.getStats()</span>. Apply Clumsy or{' '}
+                  <span className="font-mono text-zinc-200">tc netem</span> on either machine to test real congestion.
+                </p>
+              ) : (
+                <div className="space-y-1 max-h-64 overflow-y-auto">
+                  {FAULT_SCENARIOS.map((sc) => {
+                    const selected = sc.id === activeScenario;
+                    return (
+                      <button
+                        key={sc.id}
+                        type="button"
+                        onClick={() => {
+                          onSelectScenario(sc.id);
+                          setOpenPopover('none');
+                        }}
+                        className={`w-full text-left px-2.5 py-2 rounded-lg transition-colors flex items-center justify-between gap-2 ${
+                          selected
+                            ? 'bg-blue-600/20 text-zinc-100 border border-blue-500/40'
+                            : 'text-zinc-300 hover:bg-zinc-800/70 border border-transparent'
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium truncate">
+                            {sc.code}. {sc.label}
+                          </div>
+                          <div className="text-[11px] text-zinc-500 truncate">
+                            {sc.simulatedParams}
+                          </div>
                         </div>
-                        <div className="text-[11px] text-zinc-500 truncate">
-                          {sc.simulatedParams}
-                        </div>
-                      </div>
-                      {selected && (
-                        <span className="font-mono text-[10px] text-blue-400 shrink-0">Active</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+                        {selected && (
+                          <span className="font-mono text-[10px] text-blue-400 shrink-0">Active</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 
@@ -285,16 +359,18 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
             <button
               type="button"
               onClick={() => setOpenPopover((p) => (p === 'fault' ? 'none' : 'fault'))}
-              title="Inject network fault scenario"
-              aria-label="Inject network fault scenario"
+              title={isLivePeerConnected ? 'Live WebRTC stats info' : 'Inject network fault scenario'}
+              aria-label="Network fault simulator"
               className={`h-10 px-3 rounded-full flex items-center gap-1.5 text-xs font-medium transition-colors whitespace-nowrap ${
-                openPopover === 'fault' || activeScenario !== 'normal'
+                openPopover === 'fault' || (!isLivePeerConnected && activeScenario !== 'normal')
                   ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
                   : 'bg-zinc-800/90 text-zinc-200 hover:bg-zinc-700'
               }`}
             >
               <Activity className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Fault Sim</span>
+              <span className="hidden sm:inline">
+                {isLivePeerConnected ? 'Live Stats' : 'Fault Sim'}
+              </span>
             </button>
 
             <div className="w-px h-5 bg-zinc-800 mx-0.5" />
@@ -312,9 +388,9 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
         </div>
       </div>
 
-      {/* Right Split Rail (340px): Chat/Participants Top + Network Dashboard Bottom */}
+      {/* Right Split Rail (348px): Chat/Participants Top + Network Dashboard Bottom */}
       <aside className="w-full xl:w-[348px] shrink-0 flex flex-col gap-4">
-        {/* Top Panel: Chat & Participants */}
+        {/* Top Panel: Real Socket.IO Chat & Participants */}
         <section className="flex-1 min-h-[260px] max-h-[380px] xl:max-h-none bg-[#111114] border border-zinc-800 rounded-xl flex flex-col overflow-hidden">
           <div className="flex items-center border-b border-zinc-800 px-2 pt-2 gap-1">
             <button
@@ -337,35 +413,41 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                   : 'border-transparent text-zinc-500 hover:text-zinc-300'
               }`}
             >
-              Participants ({participants.length})
+              Participants ({participants.length}/2)
             </button>
           </div>
 
           {rightTab === 'chat' ? (
             <>
               <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
-                {messages.map((msg) => (
-                  <div key={msg.id} className="flex items-start gap-2.5">
-                    <div
-                      className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${
-                        msg.isSelf
-                          ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
-                          : 'bg-zinc-800 text-zinc-200'
-                      }`}
-                    >
-                      {msg.sender.slice(0, 1).toUpperCase()}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-baseline gap-2 text-xs">
-                        <span className="font-medium text-zinc-200">{msg.sender}</span>
-                        <span className="font-mono text-[10px] text-zinc-500">{msg.time}</span>
-                      </div>
-                      <p className="mt-1 text-xs text-zinc-300 bg-zinc-900/90 border border-zinc-800/80 rounded-lg px-2.5 py-1.5 inline-block max-w-full break-words">
-                        {msg.text}
-                      </p>
-                    </div>
+                {messages.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-xs text-zinc-500 text-center px-4">
+                    Room chat is synced live over Socket.IO. Open the invite link in another tab or device to chat and call in real time.
                   </div>
-                ))}
+                ) : (
+                  messages.map((msg) => (
+                    <div key={msg.id} className="flex items-start gap-2.5">
+                      <div
+                        className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold shrink-0 ${
+                          msg.isSelf
+                            ? 'bg-blue-600/20 text-blue-300 border border-blue-500/30'
+                            : 'bg-zinc-800 text-zinc-200'
+                        }`}
+                      >
+                        {msg.sender.slice(0, 1).toUpperCase()}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline gap-2 text-xs">
+                          <span className="font-medium text-zinc-200">{msg.sender}</span>
+                          <span className="font-mono text-[10px] text-zinc-500">{msg.time}</span>
+                        </div>
+                        <p className="mt-1 text-xs text-zinc-300 bg-zinc-900/90 border border-zinc-800/80 rounded-lg px-2.5 py-1.5 inline-block max-w-full break-words">
+                          {msg.text}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
 
               <form
@@ -376,7 +458,7 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  placeholder="Type a message..."
+                  placeholder="Message room over Socket.IO..."
                   className="flex-1 bg-[#09090B] border border-zinc-800 rounded-lg px-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-blue-500 transition-colors"
                 />
                 <button
@@ -422,15 +504,25 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                   </div>
                 </div>
               ))}
-              <p className="text-[11px] text-zinc-500 pt-2 leading-relaxed">
-                Current signaling contract is 1-on-1 P2P. Multi-party Mesh (3–4 peers) with
-                per-peer NQS is scheduled for Month 9.
-              </p>
+              {participants.length < 2 && (
+                <div className="pt-2 space-y-2">
+                  <p className="text-[11px] text-zinc-500 leading-relaxed">
+                    Waiting for a second user to join <span className="font-mono text-zinc-300">{roomId}</span>. Open this app in another browser tab or send the invite link to another device.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleCopyInvite}
+                    className="w-full py-1.5 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-xs text-zinc-200 transition-colors"
+                  >
+                    {copiedInvite ? 'Copied Invite URL' : 'Copy Room Invite URL'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </section>
 
-        {/* Bottom Panel: Collapsible Network Dashboard (Direct NetAdapt Mockup Evolution) */}
+        {/* Bottom Panel: Collapsible Network Dashboard */}
         <section className="bg-[#111114] border border-zinc-800 rounded-xl overflow-hidden">
           <div className="px-4 py-3 flex items-center justify-between border-b border-zinc-800/80">
             <button
@@ -469,7 +561,6 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
           {hudExpanded ? (
             <div className="p-4 space-y-4">
               <div className="grid grid-cols-12 gap-3 items-center">
-                {/* Left 2x3 Tabular Metrics Grid */}
                 <div className="col-span-8 grid grid-cols-3 gap-x-2.5 gap-y-3.5">
                   <div>
                     <div className="text-[11px] text-zinc-500">RTT</div>
@@ -541,7 +632,6 @@ export const MeetingView: React.FC<MeetingViewProps> = ({
                   </div>
                 </div>
 
-                {/* Right Connection & State Summary Column */}
                 <div className="col-span-4 pl-3 border-l border-zinc-800 space-y-2.5">
                   <div>
                     <div className="text-[11px] text-zinc-500">Connection</div>
