@@ -1,0 +1,6 @@
+{
+  "name": "NetAdapt",
+  "description": "P2P Adaptive WebRTC Video Conferencing System — Month 5 studio workbench, live NQS telemetry HUD, 12-month engineering roadmap, feature brainstorm lab, and scalable PostgreSQL + TimescaleDB + Redis blueprint.",
+  "requestFramePermissions": ["camera", "microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
